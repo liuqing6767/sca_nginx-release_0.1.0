@@ -11,6 +11,7 @@
 int ngx_pagesize;
 
 
+// ngx_alloc 完成内存的申请，并将结果记录日志
 void *ngx_alloc(size_t size, ngx_log_t *log)
 {
     void  *p;

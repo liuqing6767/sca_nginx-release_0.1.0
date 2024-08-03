@@ -46,6 +46,7 @@ typedef struct {
 } ngx_signal_t;
 
 
+// signals 是所有的信号的登记
 ngx_signal_t  signals[] = {
     { ngx_signal_value(NGX_RECONFIGURE_SIGNAL),
       "SIG" ngx_value(NGX_RECONFIGURE_SIGNAL),
@@ -84,7 +85,21 @@ ngx_signal_t  signals[] = {
     { 0, NULL, NULL }
 };
 
-
+/*
+ * ngx_posix_init 初始化操作系统。包括注册信号，确认资源使用限制
+ *
+ * 信号是一种单向异步通知机制
+ * 信号有明确的生命周期，包括：产生信号，内核存储信号，内核处理信号
+ * 
+ * fork创建的子进程会继承父进程的所有信号处理；
+ * exec创建的子进程会被设置为默认操作
+ * 
+ * C标准库定义了基本的信号操作：
+ * - sighandler_t signal(int signo, sighandler_t  handler)
+ * 
+ * POSIX定义了高级信号管理：
+ * - int sigaction(int signo, const struct sigaction *act, struct sigaction *oldact)
+ */ 
 ngx_int_t ngx_posix_init(ngx_log_t *log)
 {
     ngx_signal_t      *sig;
@@ -96,17 +111,18 @@ ngx_int_t ngx_posix_init(ngx_log_t *log)
         ngx_ncpu = 1;
     }
 
+    // 进行信号注册
     for (sig = signals; sig->signo != 0; sig++) {
         ngx_memzero(&sa, sizeof(struct sigaction));
         sa.sa_handler = sig->handler;
         sigemptyset(&sa.sa_mask);
         if (sigaction(sig->signo, &sa, NULL) == -1) {
-            ngx_log_error(NGX_LOG_EMERG, log, ngx_errno,
-                          "sigaction(%s) failed", sig->signame);
+            ngx_log_error(NGX_LOG_EMERG, log, ngx_errno, "sigaction(%s) failed", sig->signame);
             return NGX_ERROR;
         }
     }
 
+    // 获取资源使用限制
     if (getrlimit(RLIMIT_NOFILE, &rlmt) == -1) {
         ngx_log_error(NGX_LOG_ALERT, log, errno,
                       "getrlimit(RLIMIT_NOFILE) failed)");
@@ -133,6 +149,7 @@ void ngx_posix_status(ngx_log_t *log)
 }
 
 
+// ngx_signal_handler 是 ngx处理信号的函数
 void ngx_signal_handler(int signo)
 {
     char            *action;
@@ -156,6 +173,7 @@ void ngx_signal_handler(int signo)
 
     action = "";
 
+    // 先确认当前进程的角色
     switch (ngx_process) {
 
     case NGX_PROCESS_MASTER:
@@ -163,6 +181,7 @@ void ngx_signal_handler(int signo)
         switch (signo) {
 
         case ngx_signal_value(NGX_SHUTDOWN_SIGNAL):
+            // 这里的设置，会在 ngx_*_process_cycle 中处理
             ngx_quit = 1;
             action = ", shutting down";
             break;

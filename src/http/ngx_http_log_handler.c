@@ -124,6 +124,7 @@ ngx_http_log_op_name_t ngx_http_log_fmt_ops[] = {
 };
 
 
+// ngx_http_close_request 时会调用
 ngx_int_t ngx_http_log_handler(ngx_http_request_t *r)
 {
     ngx_uint_t                i, l;

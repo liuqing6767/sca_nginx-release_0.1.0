@@ -20,6 +20,10 @@ static void ngx_close_accepted_socket(ngx_socket_t s, ngx_log_t *log);
 static size_t ngx_accept_log_error(void *data, char *buf, size_t len);
 
 
+/* 事件接收。
+ * worker抢锁成功就会把nginx监听的 listen_fd 加入到自己的epoll，并把 listen_fd 以水平的方式加入到 epoll中。
+ * 回调函数就是本函数
+ */
 void ngx_event_accept(ngx_event_t *ev)
 {
     ngx_uint_t             instance, accepted;
@@ -136,6 +140,11 @@ void ngx_event_accept(ngx_event_t *ev)
         (*ngx_stat_accepted)++;
 #endif
 
+        /*
+         * s 为当前接收的已连接描述符
+         * ecf->connections 为配置的worker最大连接数
+         * 当连接超过最大连接数，为正，表示负载过高
+         */
         ngx_accept_disabled = (ngx_uint_t) s + NGX_ACCEPT_THRESHOLD
                                                             - ecf->connections;
 
@@ -351,16 +360,18 @@ void ngx_event_accept(ngx_event_t *ev)
     } while (ev->available);
 }
 
-
+/*
+ * 尝试获取 ngx_accept_mutex锁
+ */
 ngx_int_t ngx_trylock_accept_mutex(ngx_cycle_t *cycle)
 {
-    if (*ngx_accept_mutex == 0
-        && ngx_atomic_cmp_set(ngx_accept_mutex, 0, ngx_pid))
-    {
+    if (*ngx_accept_mutex == 0  // 当前进程没有拿到锁
+        && ngx_atomic_cmp_set(ngx_accept_mutex, 0, ngx_pid)) { // 加锁成功
+        
         ngx_log_debug0(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
                        "accept mutex locked");
 
-        if (!ngx_accept_mutex_held) {
+        if (!ngx_accept_mutex_held) { // 刚刚拿到锁的
             if (ngx_enable_accept_events(cycle) == NGX_ERROR) {
                 *ngx_accept_mutex = 0;
                 return NGX_ERROR;
@@ -372,7 +383,9 @@ ngx_int_t ngx_trylock_accept_mutex(ngx_cycle_t *cycle)
         return NGX_OK;
     }
 
+    // 别的进程 拿到锁了
     if (ngx_accept_mutex_held) {
+        // 当前进程不再接收连接
         if (ngx_disable_accept_events(cycle) == NGX_ERROR) {
             return NGX_ERROR;
         }
@@ -384,13 +397,15 @@ ngx_int_t ngx_trylock_accept_mutex(ngx_cycle_t *cycle)
 }
 
 
+/* 能 监听 accept（读）事件，能接收连接*/
 ngx_int_t ngx_enable_accept_events(ngx_cycle_t *cycle)
 {
     ngx_uint_t        i;
     ngx_listening_t  *s;
 
     s = cycle->listening.elts;
-    for (i = 0; i < cycle->listening.nelts; i++) {
+    // 遍历cycle的监听套接字🔢
+    for (i = 0; i < cycle->listening.nelts; i++) { 
 
         /*
          * we do not need to handle the Winsock sockets here (divide a socket
@@ -398,12 +413,14 @@ ngx_int_t ngx_enable_accept_events(ngx_cycle_t *cycle)
          * in the Winsock environment
          */
 
-        if (ngx_event_flags & NGX_USE_RTSIG_EVENT) {
+        // rtsig 是一个NGX支持，但是不常用的事件模型
+        if (ngx_event_flags & NGX_USE_RTSIG_EVENT) { 
             if (ngx_add_conn(&cycle->connections[s[i].fd]) == NGX_ERROR) {
                 return NGX_ERROR;
             }
 
         } else {
+            // epoll 逻辑
             if (ngx_add_event(&cycle->read_events[s[i].fd], NGX_READ_EVENT, 0)
                                                                   == NGX_ERROR)
             {

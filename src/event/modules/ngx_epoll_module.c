@@ -3,6 +3,35 @@
  * Copyright (C) Igor Sysoev
  */
 
+/*
+ * epoll 是 Linux提供的高级 I/O 多路复用的方案。
+ * select 和 poll 每次调用都需要所有被监听的文件描述符列表，内核必须遍历所有被监视的文件描述符
+ * 
+ * epoll 将监听注册从实际监听中分离出来，从而解决效率问题。
+ * 逻辑变成：
+ * 1. 初始化 epoll 上下文  
+ * 2. 从上下文中加入/删除监视的文件描述符
+ * 3. 执行正在的事件等待（event wait）
+ * 
+ * 1. int epfd = epoll_create1(int flags)
+ * 2. ret epoll_ctl(
+ *      int epfd,
+ *      int op, // add/del/mod
+ *      int fd,
+ *      struct epoll_event *event,
+ * )
+ * 3. events = epoll_wait(
+ *      int epfd,
+ *      struct epoll_event *event,
+ *      int maxevents,      // 最多可以有的事件
+ *      int timeout         // 最多等待时长
+ * )
+ * 
+ * epoll 的 epoll_ctl 参数中的 event 中的 events项配置有两个选择：
+ * - Level-triggerd。条件触发是默认的行为，poll 和  select 也是这种。表示有状态发生就触发。
+ * - Edge-triggered。边缘触发需要特殊的编程解决方案。表示有状态改变就触发。
+ * 举例：当第一次有数据写入，两者都触发；当有新的数据到来，只有条件触发才触发。
+ */
 
 #include <ngx_config.h>
 #include <ngx_core.h>
@@ -82,7 +111,9 @@ static void *ngx_epoll_create_conf(ngx_cycle_t *cycle);
 static char *ngx_epoll_init_conf(ngx_cycle_t *cycle, void *conf);
 
 static int                  ep = -1;
+// 当前worker进程的事件列表
 static struct epoll_event  *event_list;
+// number of envents
 static u_int                nevents;
 
 
@@ -150,11 +181,12 @@ static int ngx_epoll_init(ngx_cycle_t *cycle)
         }
     }
 
-    if (nevents < epcf->events) {
+    if (nevents < epcf->events) { // 可能是热加载
         if (event_list) {
             ngx_free(event_list);
         }
 
+        // 一次性申请内存
         event_list = ngx_alloc(sizeof(struct epoll_event) * epcf->events,
                                cycle->log);
         if (event_list == NULL) {
@@ -196,6 +228,10 @@ static void ngx_epoll_done(ngx_cycle_t *cycle)
 }
 
 
+/* 添加事件，实现为调用 epoll_ctl 调整 epoll 上下文
+ * 会在master创建worker进程时调用，用来添加通信用的 sockerpair
+ * 还会在 accept 时调用
+ */
 static int ngx_epoll_add_event(ngx_event_t *ev, int event, u_int flags)
 {
     int                  op, prev;
@@ -366,6 +402,8 @@ static int ngx_epoll_del_connection(ngx_connection_t *c, u_int flags)
 }
 
 
+// 核心逻辑：事件处理
+// epoll_wait 会阻塞，直到有新的HTTP请求到来
 int ngx_epoll_process_events(ngx_cycle_t *cycle)
 {
     int                events;
@@ -396,7 +434,8 @@ int ngx_epoll_process_events(ngx_cycle_t *cycle)
 
 #endif
 
-        if (timer != 0) {
+        // 有定时器到期了
+        if (timer != 0) { 
             break;
         }
 
@@ -423,22 +462,34 @@ int ngx_epoll_process_events(ngx_cycle_t *cycle)
     ngx_old_elapsed_msec = ngx_elapsed_msec;
     accept_lock = 0;
 
-    if (ngx_accept_mutex) {
-        if (ngx_accept_disabled > 0) {
+    /*
+     * 惊群处理
+     * nginx 有两个地方会有惊群。
+     * 这里是第一个：有可读事件就绪
+     * 第二个是：可读事件触发，执行回调
+     * 
+     * 解决方案：
+     * 1 listen_fd 在加入 epoll之前，所有的worker进行抢锁，抢到锁的进程将 listen_fd 进入 epoll
+     *      ngx_accept_mutex 就是这个原理。
+     * 2 Linux内核解决惊群问题。NGNIX在 1.9.1 版本后开始支持 reuseport 关键字 `listen 80 reuseport`，
+     *      内核会有策略（随机）选择处理的进程
+     */
+    if (ngx_accept_mutex) { // 开启了抢锁
+        if (ngx_accept_disabled > 0) { // 当前worker进程负载过高，不再接收新连接
             ngx_accept_disabled--;
 
         } else {
-            if (ngx_trylock_accept_mutex(cycle) == NGX_ERROR) {
+            if (ngx_trylock_accept_mutex(cycle) == NGX_ERROR) { // 添加连接或者时间失败
                 return NGX_ERROR;
             }
 
-            if (ngx_accept_mutex_held) {
+            if (ngx_accept_mutex_held) { // 抢锁成功
                 accept_lock = 1;
 
-            } else if (timer == NGX_TIMER_INFINITE
-                       || timer > ngx_accept_mutex_delay)
+            } else if (timer == NGX_TIMER_INFINITE  // 没抢到
+                        || timer > ngx_accept_mutex_delay)
             {
-                timer = ngx_accept_mutex_delay;
+                timer = ngx_accept_mutex_delay; // 更新时间， epoll_wait 进行等待
                 expire = 0;
             }
         }
@@ -449,7 +500,7 @@ int ngx_epoll_process_events(ngx_cycle_t *cycle)
 
     events = epoll_wait(ep, event_list, nevents, timer);
 
-    if (events == -1) {
+    if (events == -1) { // 出错
         err = ngx_errno;
     } else {
         err = 0;
@@ -463,12 +514,12 @@ int ngx_epoll_process_events(ngx_cycle_t *cycle)
                                           + tv.tv_usec / 1000 - ngx_start_msec;
 
     if (timer != NGX_TIMER_INFINITE) {
-        delta = ngx_elapsed_msec - delta;
+        delta = ngx_elapsed_msec - delta; // 更新后的运行时间与上一次的差值
 
         ngx_log_debug2(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
                        "epoll timer: %d, delta: %d", timer, (int) delta);
     } else {
-        if (events == 0) {
+        if (events == 0) { // 永久阻塞的情形下还没有事件，直接退出
             ngx_log_error(NGX_LOG_ALERT, cycle->log, 0,
                           "epoll_wait() returned no events without timeout");
             ngx_accept_mutex_unlock();
@@ -484,7 +535,7 @@ int ngx_epoll_process_events(ngx_cycle_t *cycle)
     }
 
     if (events > 0) {
-        if (ngx_mutex_lock(ngx_posted_events_mutex) == NGX_ERROR) {
+        if (ngx_mutex_lock(ngx_posted_events_mutex) == NGX_ERROR) { // 获取  ngx_posted_events_mutex 失败
             ngx_accept_mutex_unlock();
             return NGX_ERROR;
         } 
@@ -497,15 +548,17 @@ int ngx_epoll_process_events(ngx_cycle_t *cycle)
 
     log = cycle->log;
 
-    for (i = 0; i < events; i++) {
+    for (i = 0; i < events; i++) { // 处理新来的事件
         c = event_list[i].data.ptr;
 
         instance = (uintptr_t) c & 1;
         c = (ngx_connection_t *) ((uintptr_t) c & (uintptr_t) ~1);
 
+        // 处理读事件
         rev = c->read;
 
         if (c->fd == -1 || rev->instance != instance) {
+            // c->fd == -1 表明当前连接已被释放，本事件为过期时间
 
             /*
              * the stale event from a file descriptor
@@ -537,11 +590,10 @@ int ngx_epoll_process_events(ngx_cycle_t *cycle)
                           c->fd, event_list[i].events);
         }
 
+        // 处理写事件
         wev = c->write;
 
-        if ((event_list[i].events & (EPOLLOUT|EPOLLERR|EPOLLHUP))
-            && wev->active)
-        {
+        if ((event_list[i].events & (EPOLLOUT|EPOLLERR|EPOLLHUP)) && wev->active) { // 写事件ready
             if (ngx_threaded) {
                 wev->posted_ready = 1;
                 ngx_post_event(wev);
@@ -549,10 +601,10 @@ int ngx_epoll_process_events(ngx_cycle_t *cycle)
             } else {
                 wev->ready = 1;
 
-                if (!ngx_accept_mutex_held) {
+                if (!ngx_accept_mutex_held) { // 没有锁的情况下直接处理
                     wev->event_handler(wev);
 
-                } else {
+                } else { // 得到锁的情况下，放入队列。避免吞吐率降低
                     ngx_post_event(wev);
                 }
             }
@@ -564,9 +616,7 @@ int ngx_epoll_process_events(ngx_cycle_t *cycle)
          * if the accept event is the last one.
          */
 
-        if ((event_list[i].events & (EPOLLIN|EPOLLERR|EPOLLHUP))
-            && rev->active)
-        {
+        if ((event_list[i].events & (EPOLLIN|EPOLLERR|EPOLLHUP)) && rev->active) { // 读事件ready
             if (ngx_threaded && !rev->accept) {
                 rev->posted_ready = 1;
 
@@ -594,7 +644,7 @@ int ngx_epoll_process_events(ngx_cycle_t *cycle)
                     accept_lock = 0;
                 }
 
-                if (i + 1 == events) {
+                if (i + 1 == events) { // 最后一个待处理的事件
                     lock = 0;
                     break;
                 }
@@ -608,6 +658,7 @@ int ngx_epoll_process_events(ngx_cycle_t *cycle)
             }
         }
     }
+    /* 事件处理完成 */
 
     if (accept_lock) {
         ngx_accept_mutex_unlock();
@@ -617,10 +668,12 @@ int ngx_epoll_process_events(ngx_cycle_t *cycle)
         ngx_mutex_unlock(ngx_posted_events_mutex);
     }
 
+    // io 处理完成后都会执行时间事件处理函数，处理过期、超时等问题
     if (expire && delta) {
         ngx_event_expire_timers((ngx_msec_t) delta);
     }
 
+    // 处理队列中的事件
     if (ngx_posted_events) {
         if (ngx_threaded) {
             ngx_wakeup_worker_thread(cycle);

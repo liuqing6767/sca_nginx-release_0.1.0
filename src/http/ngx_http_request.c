@@ -98,6 +98,7 @@ static void ngx_http_dummy(ngx_event_t *wev)
 #endif
 
 
+// 当连接建立时会调用本函数，构建http 请求对象
 void ngx_http_init_connection(ngx_connection_t *c)
 {
     ngx_event_t         *rev;
@@ -116,6 +117,7 @@ void ngx_http_init_connection(ngx_connection_t *c)
     c->log_error = NGX_ERROR_INFO;
 
     rev = c->read;
+    // rev事件处理者转换1：ngx_http_init_request
     rev->event_handler = ngx_http_init_request;
 
     /* STUB: epoll edge */ c->write->event_handler = ngx_http_empty_handler;
@@ -123,7 +125,7 @@ void ngx_http_init_connection(ngx_connection_t *c)
     if (rev->ready) {
         /* the deferred accept(), rtsig, aio, iocp */
 
-        if (ngx_accept_mutex) {
+        if (ngx_accept_mutex) { // 当前进程真正工作，先暂存，避免负载过高影响连接建立
             if (ngx_mutex_lock(ngx_posted_events_mutex) == NGX_ERROR) {
                 ngx_http_close_connection(c);
                 return;
@@ -138,11 +140,12 @@ void ngx_http_init_connection(ngx_connection_t *c)
 #if (NGX_STAT_STUB)
         (*ngx_stat_reading)++;
 #endif
-
+        // 开始初始化请求对象
         ngx_http_init_request(rev);
         return;
     }
 
+    //  当前没有ready，添加超时控制。（文件事件 + 时间事件）
     ngx_add_timer(rev, c->listening->post_accept_timeout);
 
     if (ngx_handle_read_event(rev, 0) == NGX_ERROR) {
@@ -168,7 +171,7 @@ void ngx_http_init_connection(ngx_connection_t *c)
 
 }
 
-
+// 初始化请求对象
 static void ngx_http_init_request(ngx_event_t *rev)
 {
     ngx_uint_t                 i;
@@ -318,6 +321,7 @@ static void ngx_http_init_request(ngx_event_t *rev)
     r->srv_conf = cscf->ctx->srv_conf;
     r->loc_conf = cscf->ctx->loc_conf;
 
+    // rev事件处理者转换2：ngx_http_process_request_line
     rev->event_handler = ngx_http_process_request_line;
 
 #if (NGX_HTTP_SSL)
@@ -342,6 +346,7 @@ static void ngx_http_init_request(ngx_event_t *rev)
              */
 
             c->ssl->no_rcv_shut = 1;
+            // rev事件处理者转换2：ngx_http_ssl_handshake
             rev->event_handler = ngx_http_ssl_handshake;
         }
 
@@ -418,6 +423,7 @@ static void ngx_http_init_request(ngx_event_t *rev)
     (*ngx_stat_requests)++;
 #endif
 
+    // ngx_http_process_request_line
     rev->event_handler(rev);
 }
 
@@ -658,6 +664,7 @@ static void ngx_http_process_request_line(ngx_event_t *rev)
             ctx->action = "reading client request headers";
             ctx->url = r->unparsed_uri.data;
 
+            // rev事件处理者转换3：ngx_http_process_request_headers
             rev->event_handler = ngx_http_process_request_headers;
             ngx_http_process_request_headers(rev);
 
@@ -841,6 +848,7 @@ static void ngx_http_process_request_headers(ngx_event_t *rev)
             r->stat_writing = 1;
 #endif
 
+            // rev事件处理者转换4： ngx_http_block_read
             rev->event_handler = ngx_http_block_read;
             ngx_http_handler(r);
             return;
@@ -1215,6 +1223,7 @@ static ngx_int_t ngx_http_process_request_header(ngx_http_request_t *r)
 }
 
 
+// 请求结束
 void ngx_http_finalize_request(ngx_http_request_t *r, int rc)
 {
     ngx_http_core_loc_conf_t  *clcf;

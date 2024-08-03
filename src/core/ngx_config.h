@@ -104,14 +104,20 @@ typedef long               ngx_flag_t;
 
 #endif
 
+// #define ngx_align(p)    (char *) ( ( (unsigned long)  p +  (sizeof(unsigned long) - 1) )  & ~ (sizeof(unsigned long) - 1) )
+// ngx_align 用来对齐内存，TODO 具体算法
 #define ngx_align(p)    (char *) ((NGX_ALIGN_CAST p + NGX_ALIGN) & ~NGX_ALIGN)
-
 
 /* TODO: auto_conf: ngx_inline   inline __inline __inline__ */
 #ifndef ngx_inline
+/*
+ * 基础语法：inline 关键字
+ * 用来告诉编译器在编译阶段将函数展开到函数被调用的地方。比普通函数更快，但是也更占空间
+ */
 #define ngx_inline   inline
 #endif
 
+// 连接阈值
 #define NGX_ACCEPT_THRESHOLD   100
 
 #ifndef INADDR_NONE  /* Solaris */

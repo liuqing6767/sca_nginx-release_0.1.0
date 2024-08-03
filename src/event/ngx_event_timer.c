@@ -14,7 +14,9 @@ ngx_mutex_t  *ngx_event_timer_mutex;
 #endif
 
 
+// 超时管理的红黑树
 ngx_thread_volatile ngx_rbtree_t  *ngx_event_timer_rbtree;
+// 红黑树中的哨兵节点，始终指向红黑树的叶子节点
 ngx_rbtree_t                       ngx_event_timer_sentinel;
 
 
@@ -78,7 +80,7 @@ void ngx_event_expire_timers(ngx_msec_t timer)
         timer = 0;
     }
 
-    for ( ;; ) {
+    for ( ;; ) { // 遍历获取红黑树的最小节点
 
         if (ngx_event_timer_rbtree == &ngx_event_timer_sentinel) {
             return;
@@ -88,14 +90,13 @@ void ngx_event_expire_timers(ngx_msec_t timer)
             return;
         }
 
-        node = ngx_rbtree_min((ngx_rbtree_t *) ngx_event_timer_rbtree,
-                              &ngx_event_timer_sentinel);
+        // 从红黑树中获取最小节点
+        node = ngx_rbtree_min((ngx_rbtree_t *) ngx_event_timer_rbtree, &ngx_event_timer_sentinel);
 
-        if (node->key <= (ngx_msec_t)
-                         (ngx_old_elapsed_msec + timer) / NGX_TIMER_RESOLUTION)
-        {
-            ev = (ngx_event_t *)
-                           ((char *) node - offsetof(ngx_event_t, rbtree_key));
+        // 过期时间在过去
+        if (node->key <= (ngx_msec_t) (ngx_old_elapsed_msec + timer) / NGX_TIMER_RESOLUTION) {
+            // 通过红黑树中的节点地址还原事件首地址(这个其实是在炫技，或者说使用语言特性，没有普适性)
+            ev = (ngx_event_t *) ((char *) node - offsetof(ngx_event_t, rbtree_key));
 
 #if (NGX_THREADS)
 
@@ -120,6 +121,7 @@ void ngx_event_expire_timers(ngx_msec_t timer)
                            "event timer del: %d: %d",
                             ngx_event_ident(ev->data), ev->rbtree_key);
 
+            // 删除该节点
             ngx_rbtree_delete((ngx_rbtree_t **) &ngx_event_timer_rbtree,
                               &ngx_event_timer_sentinel,
                               (ngx_rbtree_t *) &ev->rbtree_key);
@@ -153,9 +155,10 @@ void ngx_event_expire_timers(ngx_msec_t timer)
 
             ev->timedout = 1;
 
+            // 处理时间事件
             ev->event_handler(ev);
 
-            continue;
+            continue; // 继续进行下一轮
         }
 
         break;

@@ -24,14 +24,23 @@ typedef struct {
 } ngx_http_listen_t;
 
 
+/* 
+ * HTTP 请求的多个阶段。绝大多数HTTP模块都会讲自己的handler函数添加到某个阶段
+ * 在HTTP请求处理过程中会逐个调用每个阶段的handler
+ */
 typedef enum {
+    // server 块中配置了 rewrite指令，重写 URL
     NGX_HTTP_REWRITE_PHASE = 0,
 
+    // 查找匹配的location配置。不能自定义
     NGX_HTTP_FIND_CONFIG_PHASE,
 
+    // 访问控制，比如限流模块会注册handler函数到此阶段
     NGX_HTTP_ACCESS_PHASE,
+    // 内容产生阶段，返回响应给客户端
     NGX_HTTP_CONTENT_PHASE,
 
+    // 日志记录
     NGX_HTTP_LAST_PHASE
 } ngx_http_phases;
 

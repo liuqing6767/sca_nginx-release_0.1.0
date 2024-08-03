@@ -211,12 +211,14 @@ ngx_int_t ngx_add_channel_event(ngx_cycle_t *cycle, ngx_fd_t fd,
     ev->event_handler = handler;
 
     if (ngx_add_conn && (ngx_event_flags & NGX_USE_EPOLL_EVENT) == 0) {
-        if (ngx_add_conn(c) == NGX_ERROR) {
+        // if (ngx_add_conn(c) == NGX_ERROR) {
+        if ( ngx_event_actions.add_conn(c) == NGX_ERROR) {
             return NGX_ERROR;
         }
     
     } else { 
-        if (ngx_add_event(ev, event, 0) == NGX_ERROR) {
+        // if (ngx_add_event(ev, event, 0) == NGX_ERROR) {
+        if ( ngx_event_actions.add(ev, event, 0) == NGX_ERROR) {
             return NGX_ERROR;
         }
     }

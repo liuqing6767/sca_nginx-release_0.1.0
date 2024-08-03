@@ -312,6 +312,10 @@ static ngx_str_t cache_reasons[] = {
 };
 
 
+/*
+ * 会在请求处理的  NGX_HTTP_FIND_CONFIG_PHASE 被调用
+ * 转发给upstream
+ */
 static ngx_int_t ngx_http_proxy_handler(ngx_http_request_t *r)
 {
     ngx_http_proxy_ctx_t  *p;
@@ -336,6 +340,7 @@ static ngx_int_t ngx_http_proxy_handler(ngx_http_request_t *r)
 
     ngx_memzero(p->state, sizeof(ngx_http_proxy_state_t));
 
+    // 处理文件缓存
 #if (NGX_HTTP_FILE_CACHE)
 
     if (!p->lcf->cache
@@ -560,6 +565,7 @@ void ngx_http_proxy_busy_lock_handler(ngx_event_t *rev)
 }
 
 
+/* 结束本次代理 */
 void ngx_http_proxy_finalize_request(ngx_http_proxy_ctx_t *p, int rc)
 {
     ngx_http_request_t  *r;
@@ -611,6 +617,7 @@ void ngx_http_proxy_finalize_request(ngx_http_proxy_ctx_t *p, int rc)
 }
 
 
+/* 关闭连接。 还没做连接池*/
 void ngx_http_proxy_close_connection(ngx_http_proxy_ctx_t *p)
 {
     ngx_socket_t       fd;

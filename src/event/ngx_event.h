@@ -3,6 +3,15 @@
  * Copyright (C) Igor Sysoev
  */
 
+/*
+ * nginx 有两类时间：文件事件 和 时间事件
+ * 文件事件可能有对应的时间事件，用来处理timeout
+ *  
+ * I/O多路复用支持应用同时在多个文件描述符上阻塞，并在其中某个可以读写时收到通知（多个I/O复用同一个线程）。
+ * Linux 提供了三种I/O多路复用方案： select， poll，epoll。
+ * NGINX 在 src/event/modules 中提供了多种 I/O 模型
+ */
+
 
 #ifndef _NGX_EVENT_H_INCLUDED_
 #define _NGX_EVENT_H_INCLUDED_
@@ -34,15 +43,24 @@ typedef struct {
 } ngx_event_mutex_t;
 
 
+/*
+ * 连接相关的事件
+ * 分为 读事件和写事件
+ * 
+ */
 struct ngx_event_s {
+    // 为事件关联的连接地址
     void            *data;
 
+    // 读事件还是写事件
     unsigned         write:1;
 
+    // 是accept(listen_fd触发)还是 posted事件
     unsigned         accept:1;
 
     unsigned         oneshot:1;
 
+    // 是否是陈旧事件
     /* used to detect the stale events in kqueue, rt signals and epoll */
     unsigned         instance:1;
 
@@ -50,6 +68,7 @@ struct ngx_event_s {
      * the event was passed or would be passed to a kernel;
      * in aio mode - operation was posted.
      */
+    // 是否处于epoll监听中
     unsigned         active:1;
 
     unsigned         disabled:1;
@@ -63,9 +82,12 @@ struct ngx_event_s {
     unsigned         eof:1;
     unsigned         error:1;
 
+    // 是否超时。如果超时，后续需要清理
     unsigned         timedout:1;
+    // 是否设置为定时器
     unsigned         timer_set:1;
 
+    // 限速时需要延时处理该事件
     unsigned         delayed:1;
 
     unsigned         read_discarded:1;
@@ -113,6 +135,7 @@ struct ngx_event_s {
     unsigned         available:1;
 #endif
 
+    // 事件处理函数
     /* TODO rename to handler */
     ngx_event_handler_pt  event_handler;
 
@@ -137,6 +160,7 @@ struct ngx_event_s {
      * STUB: The inline of "ngx_rbtree_t  rbtree;"
      */
 
+    // 超时相关
     ngx_int_t        rbtree_key;
     void            *rbtree_left;
     void            *rbtree_right;
@@ -197,6 +221,7 @@ struct ngx_event_s {
 };
 
 
+// 对事件的抽象，描述各个阶段的行为
 typedef struct {
     ngx_int_t  (*add)(ngx_event_t *ev, int event, u_int flags);
     ngx_int_t  (*del)(ngx_event_t *ev, int event, u_int flags);
@@ -419,13 +444,14 @@ typedef struct {
 #endif
 } ngx_event_conf_t;
 
-
+// nginx 是模块化设计，即便是事件模型，也是模块化的抽象
 typedef struct {
     ngx_str_t              *name;
 
     void                 *(*create_conf)(ngx_cycle_t *cycle);
     char                 *(*init_conf)(ngx_cycle_t *cycle, void *conf);
 
+    // 事件处理相关的函数。不同的事件模型处理的具体实现不一样，但是要做的事情是类似的
     ngx_event_actions_t     actions;
 } ngx_event_module_t;
 

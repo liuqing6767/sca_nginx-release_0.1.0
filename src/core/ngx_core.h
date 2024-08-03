@@ -8,6 +8,7 @@
 #define _NGX_CORE_H_INCLUDED_
 
 
+// 如下使用 typedef 定义结构体的别名，引入中间层为了方便变更
 typedef struct ngx_module_s      ngx_module_t;
 typedef struct ngx_conf_s        ngx_conf_t;
 typedef struct ngx_cycle_s       ngx_cycle_t;

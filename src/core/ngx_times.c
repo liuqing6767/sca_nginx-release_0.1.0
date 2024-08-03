@@ -3,10 +3,8 @@
  * Copyright (C) Igor Sysoev
  */
 
-
 #include <ngx_config.h>
 #include <ngx_core.h>
-
 
 ngx_epoch_msec_t  ngx_elapsed_msec;
 ngx_epoch_msec_t  ngx_old_elapsed_msec;
@@ -48,6 +46,12 @@ static time_t     cached_time[NGX_TIME_SLOTS];
 
 #else
 
+/*
+ * 基础语法： volatile 关键字
+ * 开启编译优化时，CPU可能直接使用寄存器的值，而不是内存的值（内存覆盖）
+ * 比如 while(a == 1) 语句，当 a=0 执行后可能还是在用寄存器中的值1
+ * 加上volatile关键字就能解决这个问题
+ */
 volatile time_t   ngx_cached_time;
 
 #endif
@@ -73,8 +77,6 @@ static char  *months[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
 
 void ngx_time_init()
 {
-    struct timeval  tv;
-
     ngx_memzero(&ngx_cached_gmtime, sizeof(ngx_tm_t));
 #ifdef ngx_tm_zone
     ngx_cached_gmtime.ngx_tm_zone = "GMT";
@@ -88,6 +90,8 @@ void ngx_time_init()
     ngx_cached_time = &cached_time[0];
 #endif
 
+    struct timeval  tv;
+    // 使用当前时间对 tv 进行赋值
     ngx_gettimeofday(&tv);
 
     ngx_start_msec = (ngx_epoch_msec_t) tv.tv_sec * 1000 + tv.tv_usec / 1000;
@@ -121,7 +125,7 @@ void ngx_time_update(time_t s)
     u_char    *p;
     ngx_tm_t   tm;
 
-    if (ngx_time() == s) {
+    if (ngx_time() == s) { // 还是当前这秒
         return;
     }
 

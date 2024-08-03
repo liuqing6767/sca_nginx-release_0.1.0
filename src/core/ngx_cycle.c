@@ -12,12 +12,16 @@
 static void ngx_clean_old_cycles(ngx_event_t *ev);
 
 
+/*
+ * ngx_cycle 为当前的全局配置得到的上下文。单例。
+ */
 volatile ngx_cycle_t  *ngx_cycle;
 ngx_array_t            ngx_old_cycles;
 
 static ngx_pool_t     *ngx_temp_pool;
 static ngx_event_t     ngx_cleaner_event;
 
+// ngx_test_config 启动时参数里面有 -t，表示测试配置文件，并不启动nginx
 ngx_uint_t             ngx_test_config;
 
 #if (NGX_THREADS)
@@ -36,6 +40,50 @@ static ngx_str_t  error_log = ngx_null_string;
 #endif
 
 
+/*
+ * ngx_init_cycle 继承旧的 cycle，解析配置文件，得到新的cycle
+
+
+user  nobody;
+worker_processes  3;
+
+#error_log  logs/error.log;
+#pid        logs/nginx.pid;
+
+
+events {
+    connections  1024;
+}
+
+
+http {
+    include       conf/mime.types;
+    default_type  application/octet-stream;
+
+    sendfile  on;
+
+    #gzip  on;
+
+    server {
+        listen  80;
+
+        charset         on;
+        source_charset  koi8-r;
+
+        #access_log  logs/access.log;
+
+        location / {
+            root   html;
+            index  index.html index.htm;
+        }
+
+    }
+
+}
+
+一级命令，比如 user， http 认为是 NGX_CORE_MODULE
+二级命令， events块对应的是 NGX_EVENT_MODULE，http块对应的是 NGX_HTTP_MODULE
+ */
 ngx_cycle_t *ngx_init_cycle(ngx_cycle_t *old_cycle)
 {
     void               *rv;
@@ -47,27 +95,34 @@ ngx_cycle_t *ngx_init_cycle(ngx_cycle_t *old_cycle)
     ngx_socket_t        fd;
     ngx_list_part_t    *part;
     ngx_open_file_t    *file;
-    ngx_listening_t    *ls, *nls;
+    ngx_listening_t    *old_listening_list, *new_listening_list;
     ngx_core_module_t  *module;
 
     log = old_cycle->log;
 
+    // 申请一个 16Kb的内存池，作为新的cycle的所有内存的空间
     if (!(pool = ngx_create_pool(16 * 1024, log))) {
         return NULL;
     }
     pool->log = log;
 
+    // 先从里面拿出一小块内存用来存储 ngx_cycle_t
     if (!(cycle = ngx_pcalloc(pool, sizeof(ngx_cycle_t)))) {
         ngx_destroy_pool(pool);
         return NULL;
     }
+
     cycle->pool = pool;
+
+    // 复制旧的cycle的属性给新的cycle，完成初始化
     cycle->log = log;
+
     cycle->old_cycle = old_cycle;
+
     cycle->conf_file = old_cycle->conf_file;
+
     cycle->root.len = sizeof(NGX_PREFIX) - 1;
     cycle->root.data = (u_char *) NGX_PREFIX;
-
 
     n = old_cycle->pathes.nelts ? old_cycle->pathes.nelts : 10;
     if (!(cycle->pathes.elts = ngx_pcalloc(pool, n * sizeof(ngx_path_t *)))) {
@@ -79,7 +134,6 @@ ngx_cycle_t *ngx_init_cycle(ngx_cycle_t *old_cycle)
     cycle->pathes.nalloc = n;
     cycle->pathes.pool = pool;
 
-
     if (old_cycle->open_files.part.nelts) {
         n = old_cycle->open_files.part.nelts;
         for (part = old_cycle->open_files.part.next; part; part = part->next) {
@@ -89,14 +143,11 @@ ngx_cycle_t *ngx_init_cycle(ngx_cycle_t *old_cycle)
     } else {
         n = 20;
     }
-
-    if (ngx_list_init(&cycle->open_files, pool, n, sizeof(ngx_open_file_t))
-                                                                  == NGX_ERROR)
+    if (ngx_list_init(&cycle->open_files, pool, n, sizeof(ngx_open_file_t)) == NGX_ERROR)
     {
         ngx_destroy_pool(pool);
         return NULL;
     }
-
 
     if (!(cycle->new_log = ngx_log_create_errlog(cycle, NULL))) {
         ngx_destroy_pool(pool);
@@ -118,20 +169,22 @@ ngx_cycle_t *ngx_init_cycle(ngx_cycle_t *old_cycle)
     cycle->listening.pool = pool;
 
 
+    // 开始处理配置文件
     cycle->conf_ctx = ngx_pcalloc(pool, ngx_max_module * sizeof(void *));
     if (cycle->conf_ctx == NULL) {
         ngx_destroy_pool(pool);
         return NULL;
     }
 
-
     for (i = 0; ngx_modules[i]; i++) {
+        // 只处理核心模块
         if (ngx_modules[i]->type != NGX_CORE_MODULE) {
             continue;
         }
 
         module = ngx_modules[i]->ctx;
 
+        // 创建核心模块的上下文
         if (module->create_conf) {
             rv = module->create_conf(cycle);
             if (rv == NGX_CONF_ERROR) {
@@ -158,7 +211,7 @@ ngx_cycle_t *ngx_init_cycle(ngx_cycle_t *old_cycle)
     conf.module_type = NGX_CORE_MODULE;
     conf.cmd_type = NGX_MAIN_CONF;
 
-
+    // 解析配置文件内容
     if (ngx_conf_parse(&conf, &cycle->conf_file) != NGX_CONF_OK) {
         ngx_destroy_pool(pool);
         return NULL;
@@ -171,6 +224,7 @@ ngx_cycle_t *ngx_init_cycle(ngx_cycle_t *old_cycle)
     }
 
 
+    // 使用配置文件内容初始化配置
     for (i = 0; ngx_modules[i]; i++) {
         if (ngx_modules[i]->type != NGX_CORE_MODULE) {
             continue;
@@ -199,6 +253,7 @@ ngx_cycle_t *ngx_init_cycle(ngx_cycle_t *old_cycle)
 #endif
 
 
+    // 处理所有打开了的文件
     if (!failed) {
 
         part = &cycle->open_files.part;
@@ -265,24 +320,26 @@ ngx_cycle_t *ngx_init_cycle(ngx_cycle_t *old_cycle)
         cycle->log->log_level = NGX_LOG_ERR;
     }
 
+    // 处理所有监听的端口
     if (!failed) {
         if (old_cycle->listening.nelts) {
-            ls = old_cycle->listening.elts;
+            old_listening_list = old_cycle->listening.elts;
             for (i = 0; i < old_cycle->listening.nelts; i++) {
-                ls[i].remain = 0;
+                old_listening_list[i].remain = 0;
             }
 
-            nls = cycle->listening.elts;
+            new_listening_list = cycle->listening.elts;
             for (n = 0; n < cycle->listening.nelts; n++) {
+                // 继承旧的监听
                 for (i = 0; i < old_cycle->listening.nelts; i++) {
-                    if (ls[i].ignore) {
+                    if (old_listening_list[i].ignore) {
                         continue;
                     }
 
-                    if (ngx_memcmp(nls[n].sockaddr,
-                                   ls[i].sockaddr, ls[i].socklen) == 0)
+                    if (ngx_memcmp(new_listening_list[n].sockaddr,
+                                   old_listening_list[i].sockaddr, old_listening_list[i].socklen) == 0)
                     {
-                        fd = ls[i].fd;
+                        fd = old_listening_list[i].fd;
 #if (WIN32)
                         /*
                          * Winsock assignes a socket number divisible by 4 so
@@ -297,37 +354,39 @@ ngx_cycle_t *ngx_init_cycle(ngx_cycle_t *old_cycle)
                                         "an open listening socket on %s, "
                                         "required at least %d connections",
                                         cycle->connection_n,
-                                        ls[i].addr_text.data, fd);
+                                        old_listening_list[i].addr_text.data, fd);
                             failed = 1;
                             break;
                         }
 
-                        nls[n].fd = ls[i].fd;
-                        nls[i].remain = 1;
-                        ls[i].remain = 1;
+                        new_listening_list[n].fd = old_listening_list[i].fd;
+                        new_listening_list[i].remain = 1;
+                        old_listening_list[i].remain = 1;
                         break;
                     }
                 }
 
-                if (nls[n].fd == -1) {
-                    nls[n].new = 1;
+                if (new_listening_list[n].fd == -1) {
+                    new_listening_list[n].new = 1;
                 }
             }
 
         } else {
-            ls = cycle->listening.elts;
+            old_listening_list = cycle->listening.elts;
             for (i = 0; i < cycle->listening.nelts; i++) {
-                ls[i].new = 1;
+                old_listening_list[i].new = 1;
             }
         }
 
         if (!ngx_test_config && !failed) {
+            // 打开所有的 socket，开始监听
             if (ngx_open_listening_sockets(cycle) == NGX_ERROR) {
                 failed = 1;
             }
         }
     }
 
+    // 异常处理，回滚配置
     if (failed) {
 
         /* rollback the new cycle configuration */
@@ -364,16 +423,16 @@ ngx_cycle_t *ngx_init_cycle(ngx_cycle_t *old_cycle)
             return NULL;
         }
 
-        ls = cycle->listening.elts;
+        old_listening_list = cycle->listening.elts;
         for (i = 0; i < cycle->listening.nelts; i++) {
-            if (ls[i].fd == -1 || !ls[i].new) {
+            if (old_listening_list[i].fd == -1 || !old_listening_list[i].new) {
                 continue;
             }
 
-            if (ngx_close_socket(ls[i].fd) == -1) {
+            if (ngx_close_socket(old_listening_list[i].fd) == -1) {
                 ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
                               ngx_close_socket_n " %s failed",
-                              ls[i].addr_text.data);
+                              old_listening_list[i].addr_text.data);
             }
         }
 
@@ -405,6 +464,7 @@ ngx_cycle_t *ngx_init_cycle(ngx_cycle_t *old_cycle)
 
     pool->log = cycle->log;
 
+    // 初始化每个模块
     for (i = 0; ngx_modules[i]; i++) {
         if (ngx_modules[i]->init_module) {
             if (ngx_modules[i]->init_module(cycle) == NGX_ERROR) {
@@ -418,16 +478,16 @@ ngx_cycle_t *ngx_init_cycle(ngx_cycle_t *old_cycle)
 
     /* close the unneeded listening sockets */
 
-    ls = old_cycle->listening.elts;
+    old_listening_list = old_cycle->listening.elts;
     for (i = 0; i < old_cycle->listening.nelts; i++) {
-        if (ls[i].remain) {
+        if (old_listening_list[i].remain) {
             continue;
         }
 
-        if (ngx_close_socket(ls[i].fd) == -1) {
+        if (ngx_close_socket(old_listening_list[i].fd) == -1) {
             ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
                           ngx_close_socket_n " %s failed",
-                          ls[i].addr_text.data);
+                          old_listening_list[i].addr_text.data);
         }
     }
 

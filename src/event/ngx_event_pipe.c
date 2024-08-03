@@ -22,6 +22,9 @@ ngx_inline static void ngx_event_pipe_add_free_buf(ngx_chain_t **chain,
 static ngx_int_t ngx_event_pipe_drain_chains(ngx_event_pipe_t *p);
 
 
+/*
+ * 双向，完成读写
+ */
 ngx_int_t ngx_event_pipe(ngx_event_pipe_t *p, int do_write)
 {
     u_int         flags;
@@ -36,6 +39,8 @@ ngx_int_t ngx_event_pipe(ngx_event_pipe_t *p, int do_write)
 
         p->read = 0;
         p->upstream_blocked = 0;
+
+        // 从 upstream读一段，再写入 downstream。如此反复
 
         if (ngx_event_pipe_read_upstream(p) == NGX_ABORT) {
             return NGX_ABORT;
@@ -78,6 +83,7 @@ ngx_int_t ngx_event_pipe(ngx_event_pipe_t *p, int do_write)
 }
 
 
+/* 从 upstream 读数据*/
 ngx_int_t ngx_event_pipe_read_upstream(ngx_event_pipe_t *p)
 {
     int           n, rc, size;
@@ -351,7 +357,7 @@ ngx_int_t ngx_event_pipe_read_upstream(ngx_event_pipe_t *p)
     return NGX_OK;
 }
 
-
+/* 将响应发给客户端 */
 ngx_int_t ngx_event_pipe_write_to_downstream(ngx_event_pipe_t *p)
 {
     size_t        bsize;

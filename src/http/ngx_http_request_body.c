@@ -122,6 +122,7 @@ static ngx_int_t ngx_http_do_read_client_request_body(ngx_http_request_t *r)
                    "http read client request body");
 
     for ( ;; ) {
+        // 内容大于缓存，就写入临时文件
         if (r->request_body->buf->last == r->request_body->buf->end) {
             n = ngx_write_chain_to_temp_file(r->request_body->temp_file,
                      r->request_body->bufs->next ? r->request_body->bufs->next:

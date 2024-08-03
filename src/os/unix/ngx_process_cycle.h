@@ -11,11 +11,17 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 
+// master 会广播给 worker 进程的 消息类型
 
+// 新建/发布一个通信管道
 #define NGX_CMD_OPEN_CHANNEL   1
+// 关闭一个通信管道
 #define NGX_CMD_CLOSE_CHANNEL  2
+// 平滑退出
 #define NGX_CMD_QUIT           3
+// 强制退出
 #define NGX_CMD_TERMINATE      4
+// 重新打开文件
 #define NGX_CMD_REOPEN         5
 
 
@@ -25,6 +31,14 @@ typedef struct {
 } ngx_master_ctx_t;
 
 
+/*
+ * NGX 的进程类型
+ *
+ * Single：当配置 master_process off 时。是 Master + Worker
+ * 多进程：
+ *  - Master：读取NGX的配置，创建 循环，开始和控制子进程。不执行任何I/O，只对信号做出响应。使用 ngx_master_process_cycle
+ *  - Worker：处理客户端请求。对信号和管道命令进行响应。可以有多个进程，用 worker_processes 指令配置。使用 ngx_worker_process_cycle
+ */
 #define NGX_PROCESS_SINGLE   0
 #define NGX_PROCESS_MASTER   1
 #define NGX_PROCESS_WORKER   2

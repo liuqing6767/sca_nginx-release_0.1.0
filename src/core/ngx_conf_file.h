@@ -83,6 +83,9 @@ struct ngx_command_s {
 #define ngx_null_command   { ngx_null_string, 0, NULL, 0, 0, NULL }
 
 
+/*
+ * 日志文件 包括 fd 和文件名
+ */
 struct ngx_open_file_s {
     ngx_fd_t   fd;
     ngx_str_t  name;
@@ -96,13 +99,30 @@ struct ngx_open_file_s {
 };
 
 
+/*
+ * nginx 的模块化设计令人称赞 —— 一切皆模块
+ * 所有功能都封装在模块中，由配置文件初始化完成
+ * 
+ * ngx_module_s 是模块
+ */
 struct ngx_module_s {
+    // 同一类型模块的顺序编号
     ngx_uint_t       ctx_index;
+    // 模块的唯一标识编号
     ngx_uint_t       index;
+    // 模块上下文
     void            *ctx;
+    // 模块支持的命令集
     ngx_command_t   *commands;
+    // 模块类型，当前有
+    //      NGX_CONF_MODULE：配置模块，当前仅一个
+    //      NGX_CORE_MODULE：核心模块，模块包括 log event  http imap
+    //      NGX_EVENT_MODULE：事件相关模块。主要用来实现多种事件模型
+    //      NGX_HTTP_MODULE： HTTP请求相关。主要用来实现各种回调函数
     ngx_uint_t       type;
+    // 初始化模块时调用
     ngx_int_t      (*init_module)(ngx_cycle_t *cycle);
+    // 初始化工作进程时调用
     ngx_int_t      (*init_process)(ngx_cycle_t *cycle);
 #if 0
     ngx_int_t      (*init_thread)(ngx_cycle_t *cycle);
@@ -129,7 +149,9 @@ typedef char *(*ngx_conf_handler_pt)(ngx_conf_t *cf,
 
 
 struct ngx_conf_s {
+    // 读取到的配置名称
     char                 *name;
+    // 读取到的配置参数
     ngx_array_t          *args;
 
     ngx_cycle_t          *cycle;
@@ -137,8 +159,11 @@ struct ngx_conf_s {
     ngx_conf_file_t      *conf_file;
     ngx_log_t            *log;
 
+    // 配置上下文
     void                 *ctx;
+    // 当前的配置能由哪些模块解析
     ngx_uint_t            module_type;
+    // 当前的配置的指令类型
     ngx_uint_t            cmd_type;
 
     ngx_conf_handler_pt   handler;

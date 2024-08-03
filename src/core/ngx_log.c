@@ -8,6 +8,7 @@
 #include <ngx_core.h>
 
 
+// ngx_log_write 就是将 errstr写入 log的fd中
 static void ngx_log_write(ngx_log_t *log, char *errstr, size_t len);
 static char *ngx_set_error_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
@@ -189,6 +190,13 @@ static void ngx_log_write(ngx_log_t *log, char *errstr, size_t len)
 
 #if !(HAVE_VARIADIC_MACROS)
 
+/*
+ * 语言基础：可变参数的获取
+ * va_list 是一个宏定义，指向变成参数列表的指针
+ * var_start 是一个宏定义，用来获取可变参数的起始地址
+ * var_arg 是一个宏定义，用来获取可变参数中的下一个参数值：va_arg(ap, type)
+ * va_end 是一个宏定义，用来结束使用  va_start 和 va_arg 宏定义的可变参数列表，清空 va_list类型变量
+ */
 void ngx_log_error(ngx_uint_t level, ngx_log_t *log, ngx_err_t err,
                    const char *fmt, ...)
 {
@@ -307,6 +315,7 @@ ngx_int_t ngx_log_init_error_log()
 #endif
 
 
+// ngx_log_create_errlog 创建错误日志
 ngx_log_t *ngx_log_create_errlog(ngx_cycle_t *cycle, ngx_array_t *args)
 {
     ngx_log_t  *log;

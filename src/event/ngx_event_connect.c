@@ -13,6 +13,9 @@
 
 /* AF_INET only */
 
+/*
+ * 连接 upstream
+ */
 int ngx_event_connect_peer(ngx_peer_connection_t *pc)
 {
     int                  rc;
@@ -81,12 +84,14 @@ int ngx_event_connect_peer(ngx_peer_connection_t *pc)
             for ( ;; ) {
                 peer = &pc->peers->peers[pc->cur_peer];
 
+                // peer 有最大失败数和冷却时间
                 if (peer->fails <= pc->peers->max_fails
                     || (now - peer->accessed > pc->peers->fail_timeout))
                 {
                     break;
                 }
 
+                // 负载均衡方式 为 平滑加权轮询
                 pc->cur_peer++;
 
                 if (pc->cur_peer >= pc->peers->number) {
@@ -263,6 +268,7 @@ int ngx_event_connect_peer(ngx_peer_connection_t *pc)
     ngx_log_debug2(NGX_LOG_DEBUG_EVENT, pc->log, 0,
                    "connect to %s, #%d", peer->addr_port_text.data, c->number);
 
+    // 这个版本没有连接池
     rc = connect(s, (struct sockaddr *) &addr, sizeof(struct sockaddr_in));
 
     if (rc == -1) {
@@ -328,9 +334,11 @@ int ngx_event_connect_peer(ngx_peer_connection_t *pc)
         event = NGX_CLEAR_EVENT;
 
     } else {                                  /* select, poll, /dev/poll */
+        // 水平触发
         event = NGX_LEVEL_EVENT;
     }
 
+    // 注册事件
     if (ngx_add_event(rev, NGX_READ_EVENT, event) != NGX_OK) {
         return NGX_ERROR;
     }

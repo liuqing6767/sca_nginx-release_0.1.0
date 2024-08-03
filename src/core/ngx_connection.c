@@ -61,6 +61,7 @@ ngx_listening_t *ngx_listening_inet_stream_socket(ngx_conf_t *cf,
 }
 
 
+// ngx_set_inherited_sockets 初始化监听数组的数据
 ngx_int_t ngx_set_inherited_sockets(ngx_cycle_t *cycle)
 {
     ngx_uint_t           i;
@@ -157,6 +158,16 @@ ngx_int_t ngx_open_listening_sockets(ngx_cycle_t *cycle)
                 continue;
             }
 
+            /*
+             * 一般socket编程为如下步骤：
+             * 1. 创建 socket
+             * 2. bind 地址
+             * 3. 开始 listen
+             * 4. accept 会保存阻塞，直到有连接建立
+             * 5. 开始 read
+             */ 
+
+            // 第1步
             s = ngx_socket(ls[i].family, ls[i].type, ls[i].protocol,
                            ls[i].flags);
 
@@ -209,6 +220,7 @@ ngx_int_t ngx_open_listening_sockets(ngx_cycle_t *cycle)
             }
 #endif
 
+            // 第2步
             if (bind(s, ls[i].sockaddr, ls[i].socklen) == -1) {
                 err = ngx_socket_errno;
                 ngx_log_error(NGX_LOG_EMERG, log, err,
@@ -226,6 +238,7 @@ ngx_int_t ngx_open_listening_sockets(ngx_cycle_t *cycle)
                 continue;
             }
 
+            // 第3步
             if (listen(s, ls[i].backlog) == -1) {
                 ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
                               "listen() to %s failed", ls[i].addr_text.data);

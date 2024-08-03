@@ -57,6 +57,10 @@ ngx_module_t  ngx_http_module = {
 };
 
 
+/*
+ * 解析 http 块的 配置
+ * nginx 会在此解析参数的同时完成模块的初始化
+ */
 static char *ngx_http_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     char                        *rv;
@@ -520,6 +524,7 @@ static char *ngx_http_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 #endif
             ls->addr_ntop = 1;
 
+            // 一开始初始化监听的handler为 ngx_http_init_connection
             ls->handler = ngx_http_init_connection;
 
             cscf = in_addr[a].core_srv_conf;

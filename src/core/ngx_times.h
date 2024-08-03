@@ -3,6 +3,10 @@
  * Copyright (C) Igor Sysoev
  */
 
+/*
+ * 基本数据结构 1.1：时间
+ * 时间相关的逻辑为比较常规的算法，不进一步解释
+ */
 
 #ifndef _NGX_TIMES_H_INCLUDED_
 #define _NGX_TIMES_H_INCLUDED_
@@ -35,6 +39,19 @@ extern volatile time_t     ngx_cached_time;
 #endif
 
 
+/*
+ * 基础语法：extern 关键字
+ * 用来说明 此变量/函数时别处定义的，要在此处引用。编译器会在链接阶段将其与其他文件的定义进行关联
+ * 只是声明，说明变量的性质，而不是定义，不分配内存
+ * 
+ * 如果要在定义之前使用，就需要加关键字 extern 进行声明
+ * 
+ * C语言中的变量和函数有数据类型和存储类型两个属性。存储类型包括四种：
+ * - auto
+ * - static
+ * - extern：全局变量默认的
+ * - register
+ */
 extern ngx_thread_volatile ngx_str_t  ngx_cached_err_log_time;
 extern ngx_thread_volatile ngx_str_t  ngx_cached_http_time;
 extern ngx_thread_volatile ngx_str_t  ngx_cached_http_log_time;

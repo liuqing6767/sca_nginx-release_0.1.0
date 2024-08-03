@@ -51,6 +51,7 @@ static int argument_number[] = {
 static int ngx_conf_read_token(ngx_conf_t *cf);
 
 
+// 解析配置文件
 char *ngx_conf_parse(ngx_conf_t *cf, ngx_str_t *filename)
 {
     int               m, rc, found, valid;

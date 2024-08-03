@@ -12,6 +12,7 @@
 #include <ngx_core.h>
 
 
+// ngx_str_t 为一个字符串，保存了字符串的长度和内容
 typedef struct {
     size_t    len;
     u_char   *data;

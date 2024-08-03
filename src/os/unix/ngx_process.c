@@ -12,12 +12,18 @@
 
 static void ngx_execute_proc(ngx_cycle_t *cycle, void *data);
 
+// 当前worker进程的下标
 ngx_int_t      ngx_process_slot;
+// 最后使用 socketpair 得到的 socket[1]
 ngx_socket_t   ngx_channel;
+// ngx_last_process 表示最后的工作进程的个数
 ngx_int_t      ngx_last_process;
+// ngx_processes 表示工作进程列表
 ngx_process_t  ngx_processes[NGX_MAX_PROCESSES];
 
 
+// ngx_spawn_process 衍生出worker进程
+// respawn 可能是类型，也可能是index下标
 ngx_pid_t ngx_spawn_process(ngx_cycle_t *cycle,
                             ngx_spawn_proc_pt proc, void *data,
                             char *name, ngx_int_t respawn)
@@ -31,7 +37,7 @@ ngx_pid_t ngx_spawn_process(ngx_cycle_t *cycle,
 
     } else {
         for (s = 0; s < ngx_last_process; s++) {
-            if (ngx_processes[s].pid == -1) {
+            if (ngx_processes[s].pid == -1) { // 找到空闲的进程
                 break;
             }
         }
@@ -49,6 +55,7 @@ ngx_pid_t ngx_spawn_process(ngx_cycle_t *cycle,
 
         /* Solaris 9 still has no AF_LOCAL */
 
+        // 创建socketpair，用来master和worker通信。master往channel[0]写，worker从channel[1]读
         if (socketpair(AF_UNIX, SOCK_STREAM, 0, ngx_processes[s].channel) == -1)
         {
             ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
@@ -118,6 +125,7 @@ ngx_pid_t ngx_spawn_process(ngx_cycle_t *cycle,
     ngx_process_slot = s;
 
 
+    // 派生子进程
     pid = fork();
 
     switch (pid) {
@@ -128,8 +136,9 @@ ngx_pid_t ngx_spawn_process(ngx_cycle_t *cycle,
         ngx_close_channel(ngx_processes[s].channel, cycle->log);
         return NGX_ERROR;
 
-    case 0:
+    case 0: // 子进程处理逻辑
         ngx_pid = ngx_getpid();
+        // worker 进程 这里会夯住。后续逻辑只有master进程执行
         proc(cycle, data);
         break;
 
@@ -140,6 +149,7 @@ ngx_pid_t ngx_spawn_process(ngx_cycle_t *cycle,
     ngx_log_debug2(NGX_LOG_DEBUG_CORE, cycle->log, 0,
                    "spawn %s: " PID_T_FMT, name, pid);
 
+    // 设置worker进程相关的属性
     ngx_processes[s].pid = pid;
     ngx_processes[s].exited = 0;
 
@@ -192,6 +202,9 @@ static void ngx_execute_proc(ngx_cycle_t *cycle, void *data)
 {
     ngx_exec_ctx_t  *ctx = data;
 
+    // 创建进程要么是fork，要么是exec。
+    // exec 会将path指定的映像载入内存，替换地址空间原来的内容。函数不会返回，调用成功时会跳转到新的程序入口点，而刚刚运行的代码在进程的地址空间中不再存在
+    // 也就是说旧的master会退出，但是旧的worker还在
     if (execve(ctx->path, ctx->argv, ctx->envp) == -1) {
         ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
                       "execve() failed while executing %s \"%s\"",

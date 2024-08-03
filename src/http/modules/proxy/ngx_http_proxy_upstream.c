@@ -628,7 +628,9 @@ static void ngx_http_proxy_connect(ngx_http_proxy_ctx_t *p)
     c = p->upstream->peer.connection;
 
     c->data = p;
+    // 设置写请求到upstream
     c->write->event_handler = ngx_http_proxy_send_request_handler;
+    // 设置从upstream读响应
     c->read->event_handler = ngx_http_proxy_process_upstream_status_line;
 
     c->pool = r->pool;
@@ -688,6 +690,7 @@ static void ngx_http_proxy_connect(ngx_http_proxy_ctx_t *p)
 
 #endif
 
+    // 开始发送请求给 upstream
     ngx_http_proxy_send_request(p);
 }
 
@@ -822,6 +825,9 @@ static void ngx_http_proxy_dummy_handler(ngx_event_t *wev)
 }
 
 
+/*
+ * 读upstream 的第一步，读首行 
+ */
 static void ngx_http_proxy_process_upstream_status_line(ngx_event_t *rev)
 {
     int                    rc;
@@ -982,7 +988,9 @@ static void ngx_http_proxy_process_upstream_status_line(ngx_event_t *rev)
     ngx_http_proxy_process_upstream_headers(rev);
 }
 
-
+/*
+ * 读 upstream 第二步：处理 响应的 header
+ */
 static void ngx_http_proxy_process_upstream_headers(ngx_event_t *rev)
 {
     int                    i, rc;
@@ -1089,7 +1097,7 @@ static void ngx_http_proxy_process_upstream_headers(ngx_event_t *rev)
             }
 
 #endif
-
+            // 响应 response
             ngx_http_proxy_send_response(p);
             return;
 
@@ -1160,7 +1168,9 @@ static ssize_t ngx_http_proxy_read_upstream_header(ngx_http_proxy_ctx_t *p)
     return n;
 }
 
-
+/*
+ * 给前端返回后端的响应
+ */
 static void ngx_http_proxy_send_response(ngx_http_proxy_ctx_t *p)
 {
     int                           rc;
@@ -1321,6 +1331,9 @@ static void ngx_http_proxy_send_response(ngx_http_proxy_ctx_t *p)
 }
 
 
+/*
+ * 给前端返回响应的内容。同时完成给upstream写和从upstream读
+ */
 static void ngx_http_proxy_process_body(ngx_event_t *ev)
 {
     ngx_connection_t      *c;

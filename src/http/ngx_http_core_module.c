@@ -320,6 +320,10 @@ ngx_module_t  ngx_http_core_module = {
 };
 
 
+/* 
+ * 首行和header都已经解析完成，开始处理请求
+ * 这个是HTTP协议的核心逻辑，会调用ngx_http_run_phases 执行各个模块的回调点
+ */
 void ngx_http_handler(ngx_http_request_t *r)
 {
     ngx_http_log_ctx_t  *lcx;
@@ -373,7 +377,7 @@ void ngx_http_handler(ngx_http_request_t *r)
     /* TEST STUB */ r->lingering_close = 1;
 #endif
 
-    r->connection->write->event_handler = ngx_http_phase_event_handler;
+    r->connection->write->event_handler = ngx_http_phase_event_handler; // 这些设置会在epoll中被触发
 
     ngx_http_run_phases(r);
 
@@ -397,6 +401,11 @@ static void ngx_http_phase_event_handler(ngx_event_t *ev)
 }
 
 
+/* 
+ * 处理各个阶段的回调。
+ * 当前版本的所有的HTTP的处理都在阶段中。包括 location、upstream等
+ * 所以需要特别看看回调的具体的行为。
+ */
 static void ngx_http_run_phases(ngx_http_request_t *r)
 {
     char                       *path;
@@ -484,6 +493,9 @@ static void ngx_http_run_phases(ngx_http_request_t *r)
 }
 
 
+/*
+ * 本函数会被注册到 NGX_HTTP_FIND_CONFIG_PHASE 阶段，供回调使用
+ */
 ngx_int_t ngx_http_find_location_config(ngx_http_request_t *r)
 {
     ngx_int_t                  rc;
@@ -547,7 +559,8 @@ ngx_int_t ngx_http_find_location_config(ngx_http_request_t *r)
         return NGX_HTTP_MOVED_PERMANENTLY;
     }
 
-    if (clcf->handler) {
+    // 这个地方可能找到 ngx_http_proxy_module 的 handler
+    if (clcf->handler) { 
         r->content_handler = clcf->handler;
     }
 

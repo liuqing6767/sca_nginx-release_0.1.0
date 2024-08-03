@@ -30,6 +30,8 @@
 
 ngx_int_t ngx_event_timer_init(ngx_log_t *log);
 ngx_msec_t ngx_event_find_timer(void);
+
+// 执行过期事件
 void ngx_event_expire_timers(ngx_msec_t timer);
 
 
@@ -42,6 +44,7 @@ extern ngx_thread_volatile ngx_rbtree_t  *ngx_event_timer_rbtree;
 extern ngx_rbtree_t                       ngx_event_timer_sentinel;
 
 
+// 删除时间事件
 ngx_inline static void ngx_event_del_timer(ngx_event_t *ev)
 {
     ngx_log_debug2(NGX_LOG_DEBUG_EVENT, ev->log, 0,
@@ -68,6 +71,7 @@ ngx_inline static void ngx_event_del_timer(ngx_event_t *ev)
 }
 
 
+// 添加时间事件
 ngx_inline static void ngx_event_add_timer(ngx_event_t *ev, ngx_msec_t timer)
 {
     ngx_int_t  key;

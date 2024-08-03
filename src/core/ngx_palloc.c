@@ -7,7 +7,8 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 
-
+// nginx_create_pool 新建一个内存池
+// size 就是这个池的总大小
 ngx_pool_t *ngx_create_pool(size_t size, ngx_log_t *log)
 {
     ngx_pool_t  *p;
@@ -25,7 +26,7 @@ ngx_pool_t *ngx_create_pool(size_t size, ngx_log_t *log)
     return p;
 }
 
-
+// ngx_destroy_pool 释放整个池
 void ngx_destroy_pool(ngx_pool_t *pool)
 {
     ngx_pool_t        *p, *n;
@@ -70,48 +71,56 @@ void ngx_destroy_pool(ngx_pool_t *pool)
 }
 
 
+// ngx_palloc 创建一个节点
+// 内存在堆上
 void *ngx_palloc(ngx_pool_t *pool, size_t size)
 {
-    char              *m;
-    ngx_pool_t        *p, *n;
-    ngx_pool_large_t  *large, *last;
+    char              *begin_position;
+    ngx_pool_t        *cur_node, *next_node;
 
+    // 如果是小块
     if (size <= (size_t) NGX_MAX_ALLOC_FROM_POOL
         && size <= (size_t) (pool->end - (char *) pool) - sizeof(ngx_pool_t))
     {
-        for (p = pool, n = pool->next; /* void */; p = n, n = n->next) {
-            m = ngx_align(p->last);
+        // 看 pool->next，也就是链表中的当前元素
+        for (cur_node = pool, next_node = pool->next; /* void */; cur_node = next_node, next_node = next_node->next) {
+            // 定位到第一个对齐的位置
+            begin_position = ngx_align(cur_node->last);
 
-            if ((size_t) (p->end - m) >= size) {
-                p->last = m + size ;
+            // 如果当前节点的大小 ≥ 需要的内存大小， 查找成功，直接返回
+            if ((size_t) (cur_node->end - begin_position) >= size) {
+                cur_node->last = begin_position + size ;
 
-                return m;
+                return begin_position;
             }
 
-            if (n == NULL) {
+            if (next_node == NULL) {
                 break;
             }
         }
 
         /* allocate a new pool block */
 
-        if (!(n = ngx_create_pool((size_t) (p->end - (char *) p), p->log))) {
+        // 没找到，只能分配出一个节点
+        if (!(next_node = ngx_create_pool((size_t) (cur_node->end - (char *) cur_node), cur_node->log))) {
             return NULL;
         }
 
-        p->next = n;
-        m = n->last;
-        n->last += size;
+        cur_node->next = next_node;
+        begin_position = next_node->last;
+        next_node->last += size;
 
-        return m;
+        return begin_position;
     }
 
     /* allocate a large block */
 
+    ngx_pool_large_t  *large, *last;
     large = NULL;
     last = NULL;
 
     if (pool->large) {
+        // 先尝试找到空的大块节点
         for (last = pool->large; /* void */ ; last = last->next) {
             if (last->alloc == NULL) {
                 large = last;
@@ -125,6 +134,7 @@ void *ngx_palloc(ngx_pool_t *pool, size_t size)
         }
     }
 
+    // 如果没有找到，就分配一个
     if (large == NULL) {
         if (!(large = ngx_palloc(pool, sizeof(ngx_pool_large_t)))) {
             return NULL;
@@ -138,7 +148,8 @@ void *ngx_palloc(ngx_pool_t *pool, size_t size)
         return NULL;
     }
 #else
-    if (!(p = ngx_alloc(size, pool->log))) {
+    // 申请一块大小正好的内存
+    if (!(cur_node = ngx_alloc(size, pool->log))) {
         return NULL;
     }
 #endif
@@ -150,12 +161,13 @@ void *ngx_palloc(ngx_pool_t *pool, size_t size)
         last->next = large;
     }
 
-    large->alloc = p;
+    large->alloc = cur_node;
 
-    return p;
+    return cur_node;
 }
 
 
+// ngx_pfree 释放指定节点
 ngx_int_t ngx_pfree(ngx_pool_t *pool, void *p)
 {
     ngx_pool_large_t  *l;
@@ -175,6 +187,7 @@ ngx_int_t ngx_pfree(ngx_pool_t *pool, void *p)
 }
 
 
+// ngx_pcalloc 同 ngx_palloc，只是会将内存初始化
 void *ngx_pcalloc(ngx_pool_t *pool, size_t size)
 {
     void *p;

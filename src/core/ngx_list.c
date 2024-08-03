@@ -7,7 +7,7 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 
-
+// ngx_list_push 向链表追加元素。返回的是内存地址，数据用户自行设置
 void *ngx_list_push(ngx_list_t *l)
 {
     void             *elt;

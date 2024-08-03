@@ -43,6 +43,7 @@ ngx_int_t ngx_radix32tree_insert(ngx_radix_tree_t *tree,
     uint32_t           bit;
     ngx_radix_node_t  *node, *next;
 
+    // 最多支持8层
     bit = 0x80000000;
     node = tree->root;
     next = NULL;

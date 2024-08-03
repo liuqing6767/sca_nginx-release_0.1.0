@@ -65,8 +65,10 @@ ngx_atomic_t                     *ngx_connection_counter = &connection_counter;
 
 ngx_atomic_t                     *ngx_accept_mutex_ptr;
 ngx_atomic_t                     *ngx_accept_mutex;
+// 是否获得 ngx_accept_mutex 全局标志
 ngx_uint_t                        ngx_accept_mutex_held;
 ngx_msec_t                        ngx_accept_mutex_delay;
+// 禁止接收连接全局标志。如果大于0表示压力过大，不再接收新请求
 ngx_int_t                         ngx_accept_disabled;
 
 
@@ -249,6 +251,7 @@ static ngx_int_t ngx_event_module_init(ngx_cycle_t *cycle)
 }
 
 
+// event 模块初始化逻辑
 static ngx_int_t ngx_event_process_init(ngx_cycle_t *cycle)
 {
     ngx_uint_t           m, i;

@@ -12,20 +12,30 @@
 #include <ngx_core.h>
 
 
+// ngx_list_part_t 为链表元素
 typedef struct ngx_list_part_s  ngx_list_part_t;
 
+// ngx_list_part_s 为链表元素
 struct ngx_list_part_s {
+    // elts 指向数据的实际存储区域
     void             *elts;
+    // nelts 为 number of 已经分配的 elements
     ngx_uint_t        nelts;
+    // next 为下一个节点
     ngx_list_part_t  *next;
 };
 
-
+// ngx_list_t 为链表头部
 typedef struct {
+    // last 为链表的最后一个节点
     ngx_list_part_t  *last;
+    // part 链表的第一个节点
     ngx_list_part_t   part;
+    // size 为每个节点的数据大小
     size_t            size;
+    // nalloc 为每个节点包含的数据个数
     ngx_uint_t        nalloc;
+    // pool 为链表头部所在的内存池
     ngx_pool_t       *pool;
 } ngx_list_t;
 

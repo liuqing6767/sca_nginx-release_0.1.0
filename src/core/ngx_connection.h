@@ -12,9 +12,13 @@
 #include <ngx_core.h>
 
 
+// ngx_listening_t 表示一个监听
+// accept 会得多个 ngx_connection_s
 typedef struct {
+    // 文件描述符
     ngx_socket_t      fd;
 
+    // 监听的socket地址，供socket、accept使用
     struct sockaddr  *sockaddr;
     socklen_t         socklen;    /* size of sockaddr */
     int               addr;       /* offset to address in sockaddr */
@@ -32,6 +36,8 @@ typedef struct {
     void             *servers;    /* array of ngx_http_in_addr_t, for example */
 
     ngx_log_t        *log;
+    // 配置文件中的 listen配置项， listen(intsock fd, int backlog) 的入参
+    // 表示内核应该为相应套接字排队的最大连接个数
     int               backlog;
 
     size_t            pool_size;
@@ -75,9 +81,14 @@ typedef enum {
 } ngx_connection_tcp_nopush_e;
 
 
+// 一个连接。隶属于一个 ngx_listening_t，有两个 ngx_event_t
 struct ngx_connection_s {
+    // 当连接空闲时：指向下一个空闲连接，形成一个单链表
+    // 当连接使用中：比如HTTP协议就指向 ngx_http_request_s
     void               *data;
+    // 读事件
     ngx_event_t        *read;
+    // 写事件
     ngx_event_t        *write;
 
     ngx_socket_t        fd;
@@ -110,6 +121,7 @@ struct ngx_connection_s {
     socklen_t           local_socklen;
 #endif
 
+    // buffer用来接收头，body等的内容。是一个中转站
     ngx_buf_t          *buffer;
 
     ngx_uint_t          number;
